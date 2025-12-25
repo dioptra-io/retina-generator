@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/dioptra-io/retina-commons/pkg/api/v1"
 	"golang.org/x/sync/errgroup"
@@ -19,9 +18,6 @@ import (
 
 // Config contains the configuration parameters for the PD generation.
 type Config struct {
-	// UDSPath is the path of the Unix Domain Socket for orchestrator-generator communication.
-	UDSPath string
-
 	// Seed is the seed used by the random generator.
 	Seed int64
 
@@ -36,8 +32,11 @@ type Config struct {
 	// times.
 	MaxAddressGenTries uint
 
-	// ReadWriter is the communication method of generator with the orchestrator.
-	ReadWriter io.ReadWriter
+	// Reader is the stream that the SS structs are decoded from.
+	Reader io.Reader
+
+	// Writer is the stream that the generated PDs are encoded to.
+	Writer io.Writer
 }
 
 // state represents the internal state of the generator.
@@ -93,7 +92,7 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 	// Goroutine: receive SS struct, update local state, notify generator if necessary.
 	group.Go(func() error {
 		var (
-			decoder = json.NewDecoder(generator.config.ReadWriter)
+			decoder = json.NewDecoder(generator.config.Reader)
 			status  api.SystemStatus
 			err     error
 		)
@@ -112,7 +111,7 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 	// Goroutine: wait until there are active agents, generate PD struct, encode & send it to the orchestrator.
 	group.Go(func() error {
 		var (
-			encoder = json.NewEncoder(generator.config.ReadWriter)
+			encoder = json.NewEncoder(generator.config.Writer)
 			pd      *api.ProbingDirective
 			ok      bool
 			err     error
@@ -128,8 +127,6 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 			if err = encoder.Encode(pd); err != nil {
 				return fmt.Errorf("cannot encode PD: %w", err)
 			}
-
-			time.Sleep(time.Second)
 		}
 	})
 
