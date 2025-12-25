@@ -72,7 +72,6 @@ type generator struct {
 // In case of updates, it changes its internal state.
 // It blocks until the context is cancelled, or an error occurs.
 func RunGenerator(parentCtx context.Context, config Config) error {
-	// Create generator and make sure notifyChan closes on exit.
 	generator := &generator{
 		state: state{
 			disallowedDestinations: make(map[[16]byte]struct{}),
@@ -80,12 +79,11 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 			activeAgentIDs:         []string{},
 		},
 		config: config,
-		// The size needs to be at least one for concurrent receive and sends.
+		// notifyChan is a semaphore to wake up the goroutine that generates PD.
 		notifyChan: make(chan struct{}, 1),
 	}
 	defer close(generator.notifyChan)
 
-	// Connect to the unix domain socket
 	conn, err := net.Dial("unix", config.UDSPath)
 	if err != nil {
 		return err
@@ -97,7 +95,6 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 		}
 	}()
 
-	// Create a errgroup with the parent context.
 	group, ctx := errgroup.WithContext(parentCtx)
 
 	// Goroutine: receive SS struct, update local state, notify generator if necessary.
