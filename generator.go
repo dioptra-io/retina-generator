@@ -3,14 +3,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/dioptra-io/retina-commons/pkg/api/v1"
 	"golang.org/x/sync/errgroup"
@@ -34,6 +35,9 @@ type Config struct {
 	// For example; generated destination address might be in the disallowed IP list, in that case retry until MaxAddressGenTries
 	// times.
 	MaxAddressGenTries uint
+
+	// ReadWriter is the communication method of generator with the orchestrator.
+	ReadWriter io.ReadWriter
 }
 
 // state represents the internal state of the generator.
@@ -84,23 +88,12 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 	}
 	defer close(generator.notifyChan)
 
-	conn, err := net.Dial("unix", config.UDSPath)
-	if err != nil {
-		return err
-	}
-	log.Println("generator connected to unix socket:", config.UDSPath)
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Printf("Cannot close connection: %v", err)
-		}
-	}()
-
 	group, ctx := errgroup.WithContext(parentCtx)
 
 	// Goroutine: receive SS struct, update local state, notify generator if necessary.
 	group.Go(func() error {
 		var (
-			decoder = json.NewDecoder(bufio.NewReader(conn))
+			decoder = json.NewDecoder(generator.config.ReadWriter)
 			status  api.SystemStatus
 			err     error
 		)
@@ -116,11 +109,10 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 		}
 	})
 
-	// Goroutine: wait until there are active agents, generate PD struct, encode it, and send it to the orchestrator.
+	// Goroutine: wait until there are active agents, generate PD struct, encode & send it to the orchestrator.
 	group.Go(func() error {
 		var (
-			writer  = bufio.NewWriter(conn)
-			encoder = json.NewEncoder(writer)
+			encoder = json.NewEncoder(generator.config.ReadWriter)
 			pd      *api.ProbingDirective
 			ok      bool
 			err     error
@@ -136,9 +128,8 @@ func RunGenerator(parentCtx context.Context, config Config) error {
 			if err = encoder.Encode(pd); err != nil {
 				return fmt.Errorf("cannot encode PD: %w", err)
 			}
-			if err = writer.Flush(); err != nil {
-				return fmt.Errorf("cannot flush PD: %w", err)
-			}
+
+			time.Sleep(time.Second)
 		}
 	})
 
@@ -178,6 +169,13 @@ func (g *generator) notify(ctx context.Context) error {
 //
 // It returns ctx.Err() if the context is canceled.
 func (g *generator) wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+
+	default:
+	}
+
 	for {
 		g.mutex.Lock()
 		if len(g.state.activeAgentIDs) > 0 {
