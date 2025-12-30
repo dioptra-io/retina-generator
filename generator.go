@@ -28,8 +28,8 @@ type Config struct {
 	MaxTTL uint8
 
 	// MaxAddressGenTries is the maximum number of attempts to generate a value that satisfies the acceptance criteria.
-	// For example; generated destination address might be in the disallowed IP list, in that case retry until MaxAddressGenTries
-	// times.
+	// For example; generated destination address might be in the disallowed IP list, in that case retry until
+	// MaxAddressGenTries times.
 	MaxAddressGenTries uint
 
 	// Reader is the stream that the SS structs are decoded from.
