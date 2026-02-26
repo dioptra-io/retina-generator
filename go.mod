@@ -3,7 +3,7 @@ module github.com/dioptra-io/retina-generator
 go 1.24.4
 
 require (
-	github.com/dioptra-io/retina-commons v0.0.1-dev
+	github.com/dioptra-io/retina-commons v0.3.0
 	github.com/gorilla/websocket v1.5.3
 )
 
