@@ -1,3 +1,8 @@
+// Copyright (c) 2025 Dioptra
+// SPDX-License-Identifier: MIT
+
+// Package retina implements the retina-generator, which generates Probing Directives (PDs)
+// and sends them to retina-orchestrator.
 package retina
 
 import (
@@ -15,88 +20,78 @@ import (
 	"github.com/dioptra-io/retina-commons/api/v1"
 )
 
-// Config contains the configuration parameters for the PD generation.
+const maxIPGenerationAttempts = 100
+
 type Config struct {
-	// Seed is the seed used by the random generator.
-	Seed int64
-	// MinTTL is the minimum possible TTL value for the generated PD.
-	MinTTL uint8
-	// MaxTTL is the maximum possible TTL value for the generated PD.
-	MaxTTL uint8
-	// AgentIDs is the list of agent IDs that the generated ProbingDirectives
-	// are assigned to.
+	Seed     int64
+	MinTTL   uint8
+	MaxTTL   uint8
 	AgentIDs []string
-	// NumPDs is the number of ProbingDirectives to generate.
-	NumPDs uint64
-	// OrchestratorAddress is the address of the orchestrator.
+	NumPDs   uint64
+	// OrchestratorAddress is the full URL of the orchestrator (e.g. http://localhost:8080).
 	OrchestratorAddress string
 	// HTTPTimeout is the timeout value for the request. Zero means no timeout.
 	HTTPTimeout time.Duration
 }
 
-// gen is the implementation of the retina-generator. It generates the given
-// number of probing directives and posts them to the orchestrator. When this
-// operation is completed it exits with a nil error.
 type gen struct {
 	config *Config
 }
 
-// NewGenFromConfig generates a new generator from the given config. If the
-// config has non-valid values it returns an error.
-func NewGenFromConfig(config *Config) (*gen, error) {
+// the config is invalid.
+func NewGen(config *Config) (*gen, error) {
 	if len(config.AgentIDs) == 0 {
 		return nil, fmt.Errorf("agentIDs cannot be empty")
 	}
 	if config.MinTTL > config.MaxTTL {
-		return nil, fmt.Errorf("minTTL cannot be greather than maxTTL")
+		return nil, fmt.Errorf("min TTL cannot be greater than max TTL")
 	}
-	config.OrchestratorAddress = strings.TrimRight(config.OrchestratorAddress, "/")
+	if config.NumPDs == 0 {
+		return nil, fmt.Errorf("number of PDs cannot be zero")
+	}
+	if config.OrchestratorAddress == "" {
+		return nil, fmt.Errorf("orchestrator address cannot be empty")
+	}
+	if config.HTTPTimeout < 0 {
+		return nil, fmt.Errorf("HTTP timeout cannot be negative")
+	}
 
 	return &gen{
 		config: config,
 	}, nil
 }
 
-// Run, will generate the requested number of ProbingDirectives and exit with a
-// nil error.
+// Run generates Probing Directives and sends them to the orchestrator.
 func (g *gen) Run(ctx context.Context) error {
-	// Generate the directives.
-	directives := make([]*api.ProbingDirective, 0, g.config.NumPDs)
+	pds := make([]*api.ProbingDirective, 0, g.config.NumPDs)
+	random := rand.New(rand.NewSource(g.config.Seed))
 	for i := uint64(0); i < g.config.NumPDs; i++ {
-		directive, err := generatePD(
-			rand.New(rand.NewSource(g.config.Seed)),
+		pd, err := generatePD(
+			random,
 			i,
-			g.config.NumPDs,
 			g.config.AgentIDs,
 			g.config.MinTTL,
 			g.config.MaxTTL)
 		if err != nil {
-			log.Printf("cannot generate %d ProbingDirectives: %v", g.config.NumPDs, err)
+			log.Printf("Failed to generate PD %d: %v", i, err)
+			continue
 		}
-
-		directives = append(directives, directive)
+		// TODO: replace with structured debug logging
+		log.Printf("Generated PD %d: %+v", i, pd)
+		pds = append(pds, pd)
 	}
 
-	// Prepare the url.
-	url := fmt.Sprintf("http://%v/%v", g.config.OrchestratorAddress, "directives")
+	url := fmt.Sprintf("%s/directives", strings.TrimRight(g.config.OrchestratorAddress, "/"))
 
-	// Send the directives to the orchestrator.
-	return sendPDs(ctx, directives, url, g.config.HTTPTimeout)
+	return sendPDs(ctx, pds, url, g.config.HTTPTimeout)
 }
 
-// sendPDs makes a http POST request to the given url.
-func sendPDs(ctx context.Context, directives []*api.ProbingDirective, url string, timeout time.Duration) error {
-	if len(directives) == 0 {
-		return fmt.Errorf("cannot choose agentID: given list of agentIDs is empty")
-	}
-
-	// Marshal JSON
-	body, err := json.Marshal(directives)
+func sendPDs(ctx context.Context, pds []*api.ProbingDirective, url string, timeout time.Duration) error {
+	body, err := json.Marshal(pds)
 	if err != nil {
-		return fmt.Errorf("marshal directives: %w", err)
+		return fmt.Errorf("marshal PDs: %w", err)
 	}
 
-	// Context with timeout
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -107,11 +102,7 @@ func sendPDs(ctx context.Context, directives []*api.ProbingDirective, url string
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
@@ -131,21 +122,14 @@ func sendPDs(ctx context.Context, directives []*api.ProbingDirective, url string
 	}
 }
 
-// generatePD generates the given number of Probing Directives from the provided
-// arguments.
-func generatePD(random *rand.Rand, id, maxNumTries uint64, agentIDs []string, minTTL, maxTTL uint8) (*api.ProbingDirective, error) {
-	if len(agentIDs) == 0 {
-		return nil, fmt.Errorf("cannot select an agentID: there are no agents")
-	}
+func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL uint8) (*api.ProbingDirective, error) {
 	agentID := agentIDs[random.Intn(len(agentIDs))]
 
-	// Randomize IPVersion
 	ipVersion := []api.IPVersion{
 		api.IPv4,
 		api.IPv6,
 	}[random.Intn(2)]
 
-	// Randomize Protocol
 	var protocol api.Protocol
 	if ipVersion == api.IPv4 {
 		protocol = []api.Protocol{
@@ -159,28 +143,24 @@ func generatePD(random *rand.Rand, id, maxNumTries uint64, agentIDs []string, mi
 		}[random.Intn(2)]
 	}
 
-	// Randomize DestinationAddress
 	var destinationAddress net.IP
-	for range maxNumTries {
+	for range maxIPGenerationAttempts {
 		candidateAddress, err := generateAddress(random, ipVersion)
 		if err != nil {
 			return nil, fmt.Errorf("cannot generate address: %w", err)
 		}
-		if !isPublicIP(candidateAddress) {
+		if !isRoutable(candidateAddress) {
 			continue
 		}
-
 		destinationAddress = candidateAddress
 		break
 	}
 	if destinationAddress == nil {
-		return nil, fmt.Errorf("cannot generate IP address: exceeded max number of tries")
+		return nil, fmt.Errorf("failed to generate routable IP address after %d attempts", maxIPGenerationAttempts)
 	}
 
-	// Randomize NearTTL
 	nearTTL := minTTL + uint8(random.Intn(int(maxTTL-minTTL+1)))
 
-	// Randomize NextHeader
 	nextHeader := api.NextHeader{}
 	switch protocol {
 	case api.ICMP:
@@ -200,7 +180,7 @@ func generatePD(random *rand.Rand, id, maxNumTries uint64, agentIDs []string, mi
 		}
 	}
 
-	return &api.ProbingDirective{
+	pd := &api.ProbingDirective{
 		ProbingDirectiveID: id,
 		IPVersion:          ipVersion,
 		Protocol:           protocol,
@@ -208,31 +188,31 @@ func generatePD(random *rand.Rand, id, maxNumTries uint64, agentIDs []string, mi
 		DestinationAddress: destinationAddress,
 		NearTTL:            nearTTL,
 		NextHeader:         nextHeader,
-	}, nil
-}
-
-// generateAddress generates a random public IP address for the given IP version.
-func generateAddress(random *rand.Rand, ipVersion api.IPVersion) (net.IP, error) {
-	var ip net.IP
-
-	switch ipVersion {
-	case api.IPv4:
-		ip = make(net.IP, net.IPv4len)
-		_, _ = random.Read(ip) // math/rand never returns an error
-
-	case api.IPv6:
-		ip = make(net.IP, net.IPv6len)
-		_, _ = random.Read(ip) // math/rand never returns an error
-
-	default:
-		return nil, fmt.Errorf("invalid ip version: expected 4 or 6, got %v", ipVersion)
 	}
 
+	// TODO: replace with structured debug logging
+	log.Printf("Generated PD %d: %+v", id, pd)
+
+	return pd, nil
+}
+
+func generateAddress(random *rand.Rand, ipVersion api.IPVersion) (net.IP, error) {
+	var length int
+	switch ipVersion {
+	case api.IPv4:
+		length = net.IPv4len
+	case api.IPv6:
+		length = net.IPv6len
+	default:
+		return nil, fmt.Errorf("invalid IP version: expected 4 or 6, got %v", ipVersion)
+	}
+
+	ip := make(net.IP, length)
+	_, _ = random.Read(ip)
 	return ip, nil
 }
 
-// isPublicIP checks if the given IP address is public or not.
-func isPublicIP(ip net.IP) bool {
+func isRoutable(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}

@@ -1,3 +1,7 @@
+// Copyright (c) 2025 Dioptra
+// SPDX-License-Identifier: MIT
+
+// retina-generator generates Probing Directives (PDs) and sends them to retina-orchestrator.
 package main
 
 import (
@@ -12,41 +16,46 @@ import (
 )
 
 func main() {
-	var (
-		seed   = flag.Int64("seed", 42, "Seed for the random generator.")
-		minTTL = flag.Uint("min_ttl", 4, "Minimum TTL value for generated PDs.")
-		maxTTL = flag.Uint("max_ttl", 32, "Maximum TTL value for generated PDs.")
-		// agentIDs = flag.String("agent_ids", "", "Comma-separated list of agent IDs.")
-		numPDs = flag.Uint64("num_pds", 1, "Number of ProbingDirectives to generate.")
+	flag.Usage = func() {
+		log.Printf("Usage: retina-generator [flags] agentID1 agentID2 ...\n")
+		flag.PrintDefaults()
+	}
 
-		orchestrator = flag.String("orchestrator", "localhost:8080", "Orchestrator base URL.")
-		httpTimeout  = flag.Duration("http_timeout", 10*time.Second, "HTTP timeout (0 means no timeout).")
+	var (
+		seed             = flag.Int64("seed", 42, "Seed for the random generator.")
+		minTTL           = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
+		maxTTL           = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
+		numPDs           = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
+		orchestratorAddr = flag.String("orchestrator-addr", "http://localhost:8080", "Orchestrator address (e.g. http://localhost:8080).")
+		httpTimeout      = flag.Duration("http-timeout", 10*time.Second, "HTTP timeout (0 means no timeout).")
 	)
+
 	flag.Parse()
 
-	// Get the agentIDs from positional arguments.
 	agentIDs := flag.Args()
 
-	// Setup the context from the signal handlers.
+	if *minTTL > 255 || *maxTTL > 255 {
+		log.Fatal("min-ttl and max-ttl must be between 0 and 255")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	gen, err := retina.NewGenFromConfig(&retina.Config{
+	gen, err := retina.NewGen(&retina.Config{
 		Seed:                *seed,
 		MinTTL:              uint8(*minTTL),
 		MaxTTL:              uint8(*maxTTL),
 		AgentIDs:            agentIDs,
 		NumPDs:              *numPDs,
-		OrchestratorAddress: *orchestrator,
+		OrchestratorAddress: *orchestratorAddr,
 		HTTPTimeout:         *httpTimeout,
 	})
 	if err != nil {
-		log.Fatalf("cannot create generator with the provided config: %v", err)
+		log.Fatalf("Cannot create generator with the provided config: %v", err)
 	}
 
-	// Run the generator until completion.
 	if err := gen.Run(ctx); err != nil {
-		log.Fatal("generator failed: ", err)
+		log.Fatalf("Failed to send directives: %v", err)
 	}
-	log.Println("Generator completed.")
+	log.Printf("Successfully sent %d directives", *numPDs)
 }
