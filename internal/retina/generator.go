@@ -22,6 +22,7 @@ import (
 
 const maxIPGenerationAttempts = 100
 
+// Config defines the parameters used to generate and submit PDs.
 type Config struct {
 	Seed     int64
 	MinTTL   uint8
@@ -38,7 +39,8 @@ type gen struct {
 	config *Config
 }
 
-// the config is invalid.
+// NewGen validates the provided Config and returns a new generator.
+// It returns an error if the configuration is invalid.
 func NewGen(config *Config) (*gen, error) {
 	if len(config.AgentIDs) == 0 {
 		return nil, fmt.Errorf("agentIDs cannot be empty")
