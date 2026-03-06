@@ -1,7 +1,10 @@
-.PHONY: build proper help docs test
+.PHONY: build proper help docs test clean
+
 help:
 	@echo valid targets: build proper clean test
-build: proper build_gen 
+
+build: proper build_gen
+
 proper:
 	find . -name '*.go' | sort | xargs wc -l
 	gofmt -s -w $(shell go list -f '{{.Dir}}' ./...)
@@ -9,10 +12,13 @@ proper:
 		echo goimports -w $(shell go list -f '{{.Dir}}' ./...); \
 		goimports -w $(shell go list -f '{{.Dir}}' ./...); \
 	fi
-	golangci-lint run --tests=false
+	golangci-lint run
+
 test:
-	go test ./...
-build_gen: 
+	go test -v -race -cover ./...
+
+build_gen:
 	go build -o retina-generator .
+
 clean:
 	rm -f retina-generator
