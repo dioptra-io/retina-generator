@@ -22,12 +22,12 @@ func main() {
 	}
 
 	var (
-		seed             = flag.Int64("seed", 42, "Seed for the random generator.")
-		minTTL           = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
-		maxTTL           = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
-		numPDs           = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
-		orchestratorAddr = flag.String("orchestrator-addr", "http://localhost:8080", "Orchestrator address (e.g. http://localhost:8080).")
-		httpTimeout      = flag.Duration("http-timeout", 10*time.Second, "HTTP timeout (0 means no timeout).")
+		seed            = flag.Int64("seed", 42, "Seed for the random generator.")
+		minTTL          = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
+		maxTTL          = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
+		numPDs          = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
+		orchestratorURL = flag.String("orchestrator-url", "http://localhost:8080", "Orchestrator URL (e.g. http://localhost:8080).")
+		httpTimeout     = flag.Duration("http-timeout", 10*time.Second, "HTTP timeout (0 means no timeout).")
 	)
 
 	flag.Parse()
@@ -42,13 +42,13 @@ func main() {
 	defer cancel()
 
 	gen, err := retina.NewGen(&retina.Config{
-		Seed:                *seed,
-		MinTTL:              uint8(*minTTL),
-		MaxTTL:              uint8(*maxTTL),
-		AgentIDs:            agentIDs,
-		NumPDs:              *numPDs,
-		OrchestratorAddress: *orchestratorAddr,
-		HTTPTimeout:         *httpTimeout,
+		Seed:            *seed,
+		MinTTL:          uint8(*minTTL),
+		MaxTTL:          uint8(*maxTTL),
+		AgentIDs:        agentIDs,
+		NumPDs:          *numPDs,
+		OrchestratorURL: *orchestratorURL,
+		HTTPTimeout:     *httpTimeout,
 	})
 	if err != nil {
 		log.Fatalf("Cannot create generator with the provided config: %v", err)

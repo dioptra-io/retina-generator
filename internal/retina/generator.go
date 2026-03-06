@@ -29,8 +29,8 @@ type Config struct {
 	MaxTTL   uint8
 	AgentIDs []string
 	NumPDs   uint64
-	// OrchestratorAddress is the full URL of the orchestrator (e.g. http://localhost:8080).
-	OrchestratorAddress string
+	// OrchestratorURL is the full URL of the orchestrator (e.g. http://localhost:8080).
+	OrchestratorURL string
 	// HTTPTimeout is the timeout value for the request. Zero means no timeout.
 	HTTPTimeout time.Duration
 }
@@ -51,7 +51,7 @@ func NewGen(config *Config) (*gen, error) {
 	if config.NumPDs == 0 {
 		return nil, fmt.Errorf("number of PDs cannot be zero")
 	}
-	if config.OrchestratorAddress == "" {
+	if config.OrchestratorURL == "" {
 		return nil, fmt.Errorf("orchestrator address cannot be empty")
 	}
 	if config.HTTPTimeout < 0 {
@@ -83,7 +83,7 @@ func (g *gen) Run(ctx context.Context) error {
 		pds = append(pds, pd)
 	}
 
-	url := fmt.Sprintf("%s/directives", strings.TrimRight(g.config.OrchestratorAddress, "/"))
+	url := fmt.Sprintf("%s/directives", strings.TrimRight(g.config.OrchestratorURL, "/"))
 
 	return sendPDs(ctx, pds, url, g.config.HTTPTimeout)
 }
@@ -94,8 +94,11 @@ func sendPDs(ctx context.Context, pds []*api.ProbingDirective, url string, timeo
 		return fmt.Errorf("marshal PDs: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -104,7 +107,7 @@ func sendPDs(ctx context.Context, pds []*api.ProbingDirective, url string, timeo
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
@@ -151,7 +154,7 @@ func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL 
 		if err != nil {
 			return nil, fmt.Errorf("cannot generate address: %w", err)
 		}
-		if !isRoutable(candidateAddress) {
+		if !isPublic(candidateAddress) {
 			continue
 		}
 		destinationAddress = candidateAddress
@@ -214,7 +217,8 @@ func generateAddress(random *rand.Rand, ipVersion api.IPVersion) (net.IP, error)
 	return ip, nil
 }
 
-func isRoutable(ip net.IP) bool {
+// isPublic reports whether ip is a publicly addressable, non-multicast address.
+func isPublic(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}

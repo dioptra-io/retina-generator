@@ -9,7 +9,7 @@
 // - sendPDs: partial - Marshal error is unreachable since ProbingDirective is always serializable
 // - generatePD: partial - generateAddress error and IP exhaustion are unreachable in practice
 // - generateAddress: 100% - IPv4, IPv6, and invalid version
-// - isRoutable: 100% - All address categories
+// - isPublic: 100% - All address categories
 // - main(): 0% (untested) - Standard practice for main functions with os.Exit
 //
 // ## Testing Strategy
@@ -40,13 +40,13 @@ import (
 
 func defaultConfig() *Config {
 	return &Config{
-		Seed:                42,
-		MinTTL:              4,
-		MaxTTL:              32,
-		AgentIDs:            []string{"agent-1"},
-		NumPDs:              10,
-		OrchestratorAddress: "http://localhost:8080",
-		HTTPTimeout:         10 * time.Second,
+		Seed:            42,
+		MinTTL:          4,
+		MaxTTL:          32,
+		AgentIDs:        []string{"agent-1"},
+		NumPDs:          10,
+		OrchestratorURL: "http://localhost:8080",
+		HTTPTimeout:     10 * time.Second,
 	}
 }
 
@@ -117,11 +117,11 @@ func TestNewGen_ZeroNumPDs(t *testing.T) {
 	}
 }
 
-func TestNewGen_EmptyOrchestratorAddress(t *testing.T) {
+func TestNewGen_EmptyOrchestratorURL(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultConfig()
-	cfg.OrchestratorAddress = ""
+	cfg.OrchestratorURL = ""
 
 	_, err := NewGen(cfg)
 	if err == nil {
@@ -152,7 +152,7 @@ func TestRun_Success(t *testing.T) {
 	defer server.Close()
 
 	cfg := defaultConfig()
-	cfg.OrchestratorAddress = server.URL
+	cfg.OrchestratorURL = server.URL
 	gen, _ := NewGen(cfg)
 
 	if err := gen.Run(context.Background()); err != nil {
@@ -167,7 +167,7 @@ func TestRun_OrchestratorError(t *testing.T) {
 	defer server.Close()
 
 	cfg := defaultConfig()
-	cfg.OrchestratorAddress = server.URL
+	cfg.OrchestratorURL = server.URL
 	gen, _ := NewGen(cfg)
 
 	if err := gen.Run(context.Background()); err == nil {
@@ -289,8 +289,8 @@ func TestGeneratePD_Success(t *testing.T) {
 	if pd.DestinationAddress == nil {
 		t.Fatal("expected non-nil destination address")
 	}
-	if !isRoutable(pd.DestinationAddress) {
-		t.Fatalf("generated IP is not routable: %v", pd.DestinationAddress)
+	if !isPublic(pd.DestinationAddress) {
+		t.Fatalf("generated IP is not public: %v", pd.DestinationAddress)
 	}
 
 	switch pd.Protocol {
@@ -376,15 +376,15 @@ func TestGenerateAddress_InvalidVersion(t *testing.T) {
 }
 
 // ============================================================================
-// UNIT TESTS - isRoutable
+// UNIT TESTS - isPublic
 // ============================================================================
 
-func TestIsRoutable(t *testing.T) {
+func TestIsPublic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		ip       net.IP
-		routable bool
+		ip     net.IP
+		public bool
 	}{
 		{net.ParseIP("8.8.8.8"), true},
 		{net.ParseIP("1.1.1.1"), true},
@@ -397,8 +397,8 @@ func TestIsRoutable(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := isRoutable(tt.ip); got != tt.routable {
-			t.Errorf("isRoutable(%v) = %v, expected %v", tt.ip, got, tt.routable)
+		if got := isPublic(tt.ip); got != tt.public {
+			t.Errorf("isPublic(%v) = %v, expected %v", tt.ip, got, tt.public)
 		}
 	}
 }

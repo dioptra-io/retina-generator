@@ -71,12 +71,12 @@ This will:
 
 | Flag                 | Default                 | Description                     |
 | -------------------- | ----------------------- | ------------------------------- |
-| `-seed`              | `42`                    | Seed for the random generator   |
-| `-min-ttl`           | `4`                     | Minimum TTL (0-255)             |
-| `-max-ttl`           | `32`                    | Maximum TTL (0-255)             |
-| `-num-pds`           | `1000`                  | Number of PDs to generate       |
-| `-orchestrator-addr` | `http://localhost:8080` | Orchestrator address            |
-| `-http-timeout`      | `10s`                   | HTTP timeout (`0` = no timeout) |
+| `--seed`              | `42`                    | Seed for the random generator   |
+| `--min-ttl`           | `4`                     | Minimum TTL (0-255)             |
+| `--max-ttl`           | `32`                    | Maximum TTL (0-255)             |
+| `--num-pds`           | `1000`                  | Number of PDs to generate       |
+| `--orchestrator-addr` | `http://localhost:8080` | Orchestrator address            |
+| `--http-timeout`      | `10s`                   | HTTP timeout (`0` = no timeout) |
 
 ---
 
