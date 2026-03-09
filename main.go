@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Dioptra
 // SPDX-License-Identifier: MIT
 
-// retina-generator generates Probing Directives (PDs) and sends them to retina-orchestrator.
+// retina-generator generates Probing Directives (PDs) and writes them to a JSONL file.
 package main
 
 import (
@@ -10,7 +10,6 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/dioptra-io/retina-generator/internal/retina"
 )
@@ -22,12 +21,11 @@ func main() {
 	}
 
 	var (
-		seed            = flag.Int64("seed", 42, "Seed for the random generator.")
-		minTTL          = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
-		maxTTL          = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
-		numPDs          = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
-		orchestratorURL = flag.String("orchestrator-url", "http://localhost:8080", "Orchestrator URL (e.g. http://localhost:8080).")
-		httpTimeout     = flag.Duration("http-timeout", 10*time.Second, "HTTP timeout (0 means no timeout).")
+		seed       = flag.Int64("seed", 42, "Seed for the random generator.")
+		minTTL     = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
+		maxTTL     = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
+		numPDs     = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
+		outputFile = flag.String("output-file", "", "Path to the output file where PDs will be written as JSONL.")
 	)
 
 	flag.Parse()
@@ -42,20 +40,19 @@ func main() {
 	defer cancel()
 
 	gen, err := retina.NewGen(&retina.Config{
-		Seed:            *seed,
-		MinTTL:          uint8(*minTTL),
-		MaxTTL:          uint8(*maxTTL),
-		AgentIDs:        agentIDs,
-		NumPDs:          *numPDs,
-		OrchestratorURL: *orchestratorURL,
-		HTTPTimeout:     *httpTimeout,
+		Seed:       *seed,
+		MinTTL:     uint8(*minTTL),
+		MaxTTL:     uint8(*maxTTL),
+		AgentIDs:   agentIDs,
+		NumPDs:     *numPDs,
+		OutputFile: *outputFile,
 	})
 	if err != nil {
 		log.Fatalf("Cannot create generator with the provided config: %v", err)
 	}
 
 	if err := gen.Run(ctx); err != nil {
-		log.Fatalf("Failed to send directives: %v", err)
+		log.Fatalf("Failed to write directives: %v", err)
 	}
-	log.Printf("Successfully sent %d directives", *numPDs)
+	log.Printf("Successfully wrote %d directives to %s", *numPDs, *outputFile)
 }
