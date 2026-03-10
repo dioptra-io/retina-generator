@@ -250,6 +250,25 @@ func TestWritePDsToFile_Overwrites(t *testing.T) {
 	}
 }
 
+func TestWritePDsToFile_EncodeError(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "readonly.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("unexpected error creating file: %v", err)
+	}
+	_ = f.Close()
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatalf("unexpected error chmod: %v", err)
+	}
+
+	err = writePDsToFile([]*api.ProbingDirective{{ProbingDirectiveID: 0}}, path)
+	if err == nil {
+		t.Fatal("expected encode error when writing to unwritable file")
+	}
+}
+
 // ============================================================================
 // UNIT TESTS - generatePD
 // ============================================================================
