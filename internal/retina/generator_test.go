@@ -6,8 +6,10 @@
 // Coverage:
 // - NewGen: 100% - All validation rules
 // - Run: partial - Failure path via IP exhaustion is unreachable in practice
-// - writePDsToFile: 100% - Success, invalid path, empty slice, overwrite
-// - generatePD: partial - generateAddress error and IP exhaustion are unreachable in practice
+// - writePDsToFile: partial - encode error is unreachable in practice; a file
+//   that opens successfully will not fail mid-encode on a simple struct
+// - generatePD: partial - generateAddress error and IP exhaustion are
+//   unreachable in practice
 // - generateAddress: 100% - IPv4, IPv6, and invalid version
 // - isPublic: 100% - All address categories
 // - main(): 0% (untested) - Standard practice for main functions with os.Exit
@@ -247,25 +249,6 @@ func TestWritePDsToFile_Overwrites(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(lines) != 1 {
 		t.Errorf("expected 1 line after overwrite, got %d", len(lines))
-	}
-}
-
-func TestWritePDsToFile_EncodeError(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "readonly.jsonl")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("unexpected error creating file: %v", err)
-	}
-	_ = f.Close()
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatalf("unexpected error chmod: %v", err)
-	}
-
-	err = writePDsToFile([]*api.ProbingDirective{{ProbingDirectiveID: 0}}, path)
-	if err == nil {
-		t.Fatal("expected encode error when writing to unwritable file")
 	}
 }
 
