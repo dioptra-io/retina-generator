@@ -1,35 +1,31 @@
 // ## Test Coverage
 //
 // Tests for the retina-generator internal package, covering PD generation,
-// HTTP communication with the orchestrator, and input validation.
+// JSONL file output, and input validation.
 //
 // Coverage:
 // - NewGen: 100% - All validation rules
 // - Run: partial - Failure path via IP exhaustion is unreachable in practice
-// - sendPDs: partial - Marshal error is unreachable since ProbingDirective is always serializable
-// - generatePD: partial - generateAddress error and IP exhaustion are unreachable in practice
+// - writePDsToFile: partial - encode error is unreachable in practice; a file
+//   that opens successfully will not fail mid-encode on a simple struct
+// - generatePD: partial - generateAddress error and IP exhaustion are
+//   unreachable in practice
 // - generateAddress: 100% - IPv4, IPv6, and invalid version
 // - isPublic: 100% - All address categories
 // - main(): 0% (untested) - Standard practice for main functions with os.Exit
-//
-// ## Testing Strategy
-//
-// Uses httptest.Server to simulate orchestrator HTTP responses without
-// requiring actual network connections. All tests are deterministic via
-// fixed random seeds.
 
 package retina
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"math/rand"
 	"net"
-	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/dioptra-io/retina-commons/api/v1"
 )
@@ -38,33 +34,16 @@ import (
 // TEST HELPERS
 // ============================================================================
 
-func defaultConfig() *Config {
-	return &Config{
-		Seed:            42,
-		MinTTL:          4,
-		MaxTTL:          32,
-		AgentIDs:        []string{"agent-1"},
-		NumPDs:          10,
-		OrchestratorURL: "http://localhost:8080",
-		HTTPTimeout:     10 * time.Second,
-	}
-}
-
-func newTestServer(t *testing.T, statusCode int) *httptest.Server {
+func defaultConfig(t *testing.T) *Config {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
-			t.Errorf("expected application/json, got %s", ct)
-		}
-		var received []*api.ProbingDirective
-		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
-			t.Errorf("invalid JSON body: %v", err)
-		}
-		w.WriteHeader(statusCode)
-	}))
+	return &Config{
+		Seed:       42,
+		MinTTL:     4,
+		MaxTTL:     32,
+		AgentIDs:   []string{"agent-1"},
+		NumPDs:     10,
+		OutputFile: filepath.Join(t.TempDir(), "pds.jsonl"),
+	}
 }
 
 // ============================================================================
@@ -74,7 +53,7 @@ func newTestServer(t *testing.T, statusCode int) *httptest.Server {
 func TestNewGen_Valid(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewGen(defaultConfig())
+	_, err := NewGen(defaultConfig(t))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +62,7 @@ func TestNewGen_Valid(t *testing.T) {
 func TestNewGen_EmptyAgentIDs(t *testing.T) {
 	t.Parallel()
 
-	cfg := defaultConfig()
+	cfg := defaultConfig(t)
 	cfg.AgentIDs = []string{}
 
 	_, err := NewGen(cfg)
@@ -95,7 +74,7 @@ func TestNewGen_EmptyAgentIDs(t *testing.T) {
 func TestNewGen_MinTTLGreaterThanMaxTTL(t *testing.T) {
 	t.Parallel()
 
-	cfg := defaultConfig()
+	cfg := defaultConfig(t)
 	cfg.MinTTL = 32
 	cfg.MaxTTL = 4
 
@@ -108,7 +87,7 @@ func TestNewGen_MinTTLGreaterThanMaxTTL(t *testing.T) {
 func TestNewGen_ZeroNumPDs(t *testing.T) {
 	t.Parallel()
 
-	cfg := defaultConfig()
+	cfg := defaultConfig(t)
 	cfg.NumPDs = 0
 
 	_, err := NewGen(cfg)
@@ -117,27 +96,15 @@ func TestNewGen_ZeroNumPDs(t *testing.T) {
 	}
 }
 
-func TestNewGen_EmptyOrchestratorURL(t *testing.T) {
+func TestNewGen_EmptyOutputFile(t *testing.T) {
 	t.Parallel()
 
-	cfg := defaultConfig()
-	cfg.OrchestratorURL = ""
+	cfg := defaultConfig(t)
+	cfg.OutputFile = ""
 
 	_, err := NewGen(cfg)
 	if err == nil {
-		t.Fatal("expected error for empty orchestrator address")
-	}
-}
-
-func TestNewGen_NegativeHTTPTimeout(t *testing.T) {
-	t.Parallel()
-
-	cfg := defaultConfig()
-	cfg.HTTPTimeout = -1
-
-	_, err := NewGen(cfg)
-	if err == nil {
-		t.Fatal("expected error for negative HTTP timeout")
+		t.Fatal("expected error for empty output file")
 	}
 }
 
@@ -148,118 +115,140 @@ func TestNewGen_NegativeHTTPTimeout(t *testing.T) {
 func TestRun_Success(t *testing.T) {
 	t.Parallel()
 
-	server := newTestServer(t, http.StatusOK)
-	defer server.Close()
-
-	cfg := defaultConfig()
-	cfg.OrchestratorURL = server.URL
-	gen, _ := NewGen(cfg)
+	cfg := defaultConfig(t)
+	gen, err := NewGen(cfg)
+	if err != nil {
+		t.Fatalf("unexpected NewGen error: %v", err)
+	}
 
 	if err := gen.Run(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected Run error: %v", err)
+	}
+
+	f, err := os.Open(cfg.OutputFile)
+	if err != nil {
+		t.Fatalf("cannot open output file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var lineCount int
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var pd api.ProbingDirective
+		if err := json.Unmarshal([]byte(line), &pd); err != nil {
+			t.Errorf("line %d is not valid JSON: %v", lineCount+1, err)
+		}
+		lineCount++
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner error: %v", err)
+	}
+	if uint64(lineCount) != cfg.NumPDs {
+		t.Errorf("expected %d lines, got %d", cfg.NumPDs, lineCount)
 	}
 }
 
-func TestRun_OrchestratorError(t *testing.T) {
+func TestRun_InvalidPath(t *testing.T) {
 	t.Parallel()
 
-	server := newTestServer(t, http.StatusInternalServerError)
-	defer server.Close()
-
-	cfg := defaultConfig()
-	cfg.OrchestratorURL = server.URL
-	gen, _ := NewGen(cfg)
+	cfg := defaultConfig(t)
+	cfg.OutputFile = "/nonexistent-dir/pds.jsonl"
+	gen, err := NewGen(cfg)
+	if err != nil {
+		t.Fatalf("unexpected NewGen error: %v", err)
+	}
 
 	if err := gen.Run(context.Background()); err == nil {
-		t.Fatal("expected error but got nil")
+		t.Fatal("expected error for invalid output file path")
 	}
 }
 
 // ============================================================================
-// UNIT TESTS - sendPDs
+// UNIT TESTS - writePDsToFile
 // ============================================================================
 
-func TestSendPDs(t *testing.T) {
+func TestWritePDsToFile_Success(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name           string
-		statusCode     int
-		expectError    bool
-		expectedErrMsg string
-	}{
-		{
-			name:        "200 OK",
-			statusCode:  http.StatusOK,
-			expectError: false,
-		},
-		{
-			name:           "400 Bad Request",
-			statusCode:     http.StatusBadRequest,
-			expectError:    true,
-			expectedErrMsg: "400",
-		},
-		{
-			name:           "500 Internal Server Error",
-			statusCode:     http.StatusInternalServerError,
-			expectError:    true,
-			expectedErrMsg: "500",
-		},
-		{
-			name:           "Unexpected Status",
-			statusCode:     http.StatusTeapot,
-			expectError:    true,
-			expectedErrMsg: "unexpected",
-		},
+	path := filepath.Join(t.TempDir(), "out.jsonl")
+	pds := []*api.ProbingDirective{
+		{ProbingDirectiveID: 0, IPVersion: api.IPv4, Protocol: api.UDP},
+		{ProbingDirectiveID: 1, IPVersion: api.IPv6, Protocol: api.ICMPv6},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	if err := writePDsToFile(pds, path); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-			server := newTestServer(t, tt.statusCode)
-			defer server.Close()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("cannot read output file: %v", err)
+	}
 
-			pds := []*api.ProbingDirective{{}}
-			err := sendPDs(context.Background(), pds, server.URL, 2*time.Second)
-
-			if tt.expectError && err == nil {
-				t.Fatalf("expected error but got nil")
-			}
-			if !tt.expectError && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tt.expectError && tt.expectedErrMsg != "" && err != nil {
-				if !strings.Contains(err.Error(), tt.expectedErrMsg) {
-					t.Fatalf("expected error containing %q, got %v", tt.expectedErrMsg, err)
-				}
-			}
-		})
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) != len(pds) {
+		t.Fatalf("expected %d lines, got %d", len(pds), len(lines))
+	}
+	for i, line := range lines {
+		var pd api.ProbingDirective
+		if err := json.Unmarshal([]byte(line), &pd); err != nil {
+			t.Errorf("line %d is not valid JSON: %v", i, err)
+		}
+		if pd.ProbingDirectiveID != pds[i].ProbingDirectiveID {
+			t.Errorf("line %d: expected ID %d, got %d", i, pds[i].ProbingDirectiveID, pd.ProbingDirectiveID)
+		}
 	}
 }
 
-func TestSendPDs_Timeout(t *testing.T) {
+func TestWritePDsToFile_EmptySlice(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(5 * time.Second)
-	}))
-	defer server.Close()
+	path := filepath.Join(t.TempDir(), "empty.jsonl")
+	if err := writePDsToFile([]*api.ProbingDirective{}, path); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	pds := []*api.ProbingDirective{{}}
-	err := sendPDs(context.Background(), pds, server.URL, 100*time.Millisecond)
-	if err == nil {
-		t.Fatal("expected timeout error")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("expected file to exist: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("expected empty file, got %d bytes", info.Size())
 	}
 }
 
-func TestSendPDs_InvalidURL(t *testing.T) {
+func TestWritePDsToFile_InvalidPath(t *testing.T) {
 	t.Parallel()
 
-	pds := []*api.ProbingDirective{{}}
-	err := sendPDs(context.Background(), pds, "://invalid-url", 2*time.Second)
+	err := writePDsToFile([]*api.ProbingDirective{{}}, "/nonexistent-dir/out.jsonl")
 	if err == nil {
-		t.Fatal("expected error for invalid URL")
+		t.Fatal("expected error for invalid path")
+	}
+}
+
+func TestWritePDsToFile_Overwrites(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "overwrite.jsonl")
+
+	pds2 := []*api.ProbingDirective{{ProbingDirectiveID: 0}, {ProbingDirectiveID: 1}}
+	if err := writePDsToFile(pds2, path); err != nil {
+		t.Fatalf("first write error: %v", err)
+	}
+
+	pds1 := []*api.ProbingDirective{{ProbingDirectiveID: 99}}
+	if err := writePDsToFile(pds1, path); err != nil {
+		t.Fatalf("second write error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line after overwrite, got %d", len(lines))
 	}
 }
 

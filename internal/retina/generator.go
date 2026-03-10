@@ -2,37 +2,31 @@
 // SPDX-License-Identifier: MIT
 
 // Package retina implements the retina-generator, which generates Probing Directives (PDs)
-// and sends them to retina-orchestrator.
+// and writes them to a JSONL file.
 package retina
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net"
-	"net/http"
-	"strings"
-	"time"
+	"os"
 
 	"github.com/dioptra-io/retina-commons/api/v1"
 )
 
 const maxIPGenerationAttempts = 100
 
-// Config defines the parameters used to generate and submit PDs.
+// Config defines the parameters used to generate and write PDs.
 type Config struct {
-	Seed     int64
-	MinTTL   uint8
-	MaxTTL   uint8
-	AgentIDs []string
-	NumPDs   uint64
-	// OrchestratorURL is the full URL of the orchestrator (e.g. http://localhost:8080).
-	OrchestratorURL string
-	// HTTPTimeout is the timeout value for the request. Zero means no timeout.
-	HTTPTimeout time.Duration
+	Seed       int64
+	MinTTL     uint8
+	MaxTTL     uint8
+	AgentIDs   []string
+	NumPDs     uint64
+	OutputFile string
 }
 
 type gen struct {
@@ -51,11 +45,8 @@ func NewGen(config *Config) (*gen, error) {
 	if config.NumPDs == 0 {
 		return nil, fmt.Errorf("number of PDs cannot be zero")
 	}
-	if config.OrchestratorURL == "" {
-		return nil, fmt.Errorf("orchestrator address cannot be empty")
-	}
-	if config.HTTPTimeout < 0 {
-		return nil, fmt.Errorf("HTTP timeout cannot be negative")
+	if config.OutputFile == "" {
+		return nil, fmt.Errorf("output file cannot be empty")
 	}
 
 	return &gen{
@@ -63,8 +54,8 @@ func NewGen(config *Config) (*gen, error) {
 	}, nil
 }
 
-// Run generates Probing Directives and sends them to the orchestrator.
-func (g *gen) Run(ctx context.Context) error {
+// Run generates Probing Directives and writes them to the configured JSONL file.
+func (g *gen) Run(_ context.Context) error {
 	pds := make([]*api.ProbingDirective, 0, g.config.NumPDs)
 	random := rand.New(rand.NewSource(g.config.Seed))
 	for i := uint64(0); i < g.config.NumPDs; i++ {
@@ -78,53 +69,30 @@ func (g *gen) Run(ctx context.Context) error {
 			log.Printf("Failed to generate PD %d: %v", i, err)
 			continue
 		}
-		// TODO: replace with structured debug logging
-		log.Printf("Generated PD %d: %+v", i, pd)
 		pds = append(pds, pd)
 	}
 
-	url := fmt.Sprintf("%s/directives", strings.TrimRight(g.config.OrchestratorURL, "/"))
-
-	return sendPDs(ctx, pds, url, g.config.HTTPTimeout)
+	return writePDsToFile(pds, g.config.OutputFile)
 }
 
-func sendPDs(ctx context.Context, pds []*api.ProbingDirective, url string, timeout time.Duration) error {
-	body, err := json.Marshal(pds)
+// writePDsToFile writes each ProbingDirective as a JSON object on its own line
+// (JSONL format) to the file at the given path, creating or truncating it.
+func writePDsToFile(pds []*api.ProbingDirective, path string) error {
+	f, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("marshal PDs: %w", err)
-	}
-
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		return fmt.Errorf("send request: %w", err)
+		return fmt.Errorf("open output file: %w", err)
 	}
 	defer func() {
-		_ = resp.Body.Close()
+		_ = f.Close()
 	}()
 
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return nil
-	case http.StatusBadRequest:
-		return fmt.Errorf("orchestrator returned 400 (bad request)")
-	case http.StatusInternalServerError:
-		return fmt.Errorf("orchestrator returned 500 (internal server error)")
-	default:
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	enc := json.NewEncoder(f)
+	for _, pd := range pds {
+		if err := enc.Encode(pd); err != nil {
+			return fmt.Errorf("encode PD %d: %w", pd.ProbingDirectiveID, err)
+		}
 	}
+	return nil
 }
 
 func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL uint8) (*api.ProbingDirective, error) {
@@ -194,9 +162,6 @@ func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL 
 		NearTTL:            nearTTL,
 		NextHeader:         nextHeader,
 	}
-
-	// TODO: replace with structured debug logging
-	log.Printf("Generated PD %d: %+v", id, pd)
 
 	return pd, nil
 }
