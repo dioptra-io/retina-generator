@@ -21,12 +21,11 @@ const maxIPGenerationAttempts = 100
 
 // Config defines the parameters used to generate and write PDs.
 type Config struct {
-	Seed     int64
-	MinTTL   uint8
-	MaxTTL   uint8
-	AgentIDs []string
-	NumPDs   uint64
-	// OutputFile is the path to the file where PDs will be written in JSONL format.
+	Seed       int64
+	MinTTL     uint8
+	MaxTTL     uint8
+	AgentIDs   []string
+	NumPDs     uint64
 	OutputFile string
 }
 
