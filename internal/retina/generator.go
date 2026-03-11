@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"time"
 
 	"github.com/dioptra-io/retina-commons/api/v1"
 )
@@ -58,6 +59,7 @@ func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
 
 // Run generates Probing Directives and writes them to the configured JSONL file.
 func (g *gen) Run(_ context.Context) error {
+	start := time.Now()
 	g.logger.Info("Starting PD generation",
 		slog.Uint64("num_pds", g.config.NumPDs),
 		slog.String("output_file", g.config.OutputFile),
@@ -95,8 +97,10 @@ func (g *gen) Run(_ context.Context) error {
 	g.logger.Info("PD generation complete",
 		slog.Int("written", len(pds)),
 		slog.Uint64("requested", g.config.NumPDs),
+		slog.Int("skipped", int(g.config.NumPDs)-len(pds)),
 		slog.String("output_file", g.config.OutputFile),
 		slog.Int64("seed", g.config.Seed),
+		slog.Float64("duration_seconds", time.Since(start).Seconds()),
 	)
 	return nil
 }
