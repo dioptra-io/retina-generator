@@ -8,6 +8,8 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -26,6 +28,7 @@ func main() {
 		maxTTL     = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
 		numPDs     = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
 		outputFile = flag.String("output-file", "", "Path to the output file where PDs will be written as JSONL.")
+		logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error).")
 	)
 
 	flag.Parse()
@@ -35,6 +38,15 @@ func main() {
 	if *minTTL > 255 || *maxTTL > 255 {
 		log.Fatal("min-ttl and max-ttl must be between 0 and 255")
 	}
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
+		log.Fatalf("Invalid log level %q (want debug, info, warn, or error): %v", *logLevel, err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: level,
+	}))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -46,13 +58,14 @@ func main() {
 		AgentIDs:   agentIDs,
 		NumPDs:     *numPDs,
 		OutputFile: *outputFile,
-	})
+	}, logger)
 	if err != nil {
-		log.Fatalf("Cannot create generator with the provided config: %v", err)
+		logger.Error("Cannot create generator with the provided config", slog.Any("err", err))
+		os.Exit(1)
 	}
 
 	if err := gen.Run(ctx); err != nil {
-		log.Fatalf("Failed to write directives: %v", err)
+		logger.Error("Failed to write directives", slog.Any("err", err))
+		os.Exit(1)
 	}
-	log.Printf("Successfully wrote %d directives to %s", *numPDs, *outputFile)
 }

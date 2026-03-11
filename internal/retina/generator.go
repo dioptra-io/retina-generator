@@ -9,7 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"os"
@@ -31,11 +31,12 @@ type Config struct {
 
 type gen struct {
 	config *Config
+	logger *slog.Logger
 }
 
 // NewGen validates the provided Config and returns a new generator.
 // It returns an error if the configuration is invalid.
-func NewGen(config *Config) (*gen, error) {
+func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
 	if len(config.AgentIDs) == 0 {
 		return nil, fmt.Errorf("agentIDs cannot be empty")
 	}
@@ -51,11 +52,18 @@ func NewGen(config *Config) (*gen, error) {
 
 	return &gen{
 		config: config,
+		logger: logger,
 	}, nil
 }
 
 // Run generates Probing Directives and writes them to the configured JSONL file.
 func (g *gen) Run(_ context.Context) error {
+	g.logger.Info("Starting PD generation",
+		slog.Uint64("num_pds", g.config.NumPDs),
+		slog.String("output_file", g.config.OutputFile),
+		slog.Int("agent_count", len(g.config.AgentIDs)),
+	)
+
 	pds := make([]*api.ProbingDirective, 0, g.config.NumPDs)
 	random := rand.New(rand.NewSource(g.config.Seed))
 	for i := uint64(0); i < g.config.NumPDs; i++ {
@@ -66,13 +74,31 @@ func (g *gen) Run(_ context.Context) error {
 			g.config.MinTTL,
 			g.config.MaxTTL)
 		if err != nil {
-			log.Printf("Failed to generate PD %d: %v", i, err)
+			g.logger.Warn("Skipping PD: generation failed",
+				slog.Uint64("pd_index", i),
+				slog.String("reason", err.Error()),
+			)
 			continue
 		}
 		pds = append(pds, pd)
 	}
 
-	return writePDsToFile(pds, g.config.OutputFile)
+	if err := writePDsToFile(pds, g.config.OutputFile); err != nil {
+		g.logger.Error("Failed to write PDs to file",
+			slog.Int("generated", len(pds)),
+			slog.String("output_file", g.config.OutputFile),
+			slog.Any("err", err),
+		)
+		return err
+	}
+
+	g.logger.Info("PD generation complete",
+		slog.Int("written", len(pds)),
+		slog.Uint64("requested", g.config.NumPDs),
+		slog.String("output_file", g.config.OutputFile),
+		slog.Int64("seed", g.config.Seed),
+	)
+	return nil
 }
 
 // writePDsToFile writes each ProbingDirective as a JSON object on its own line
