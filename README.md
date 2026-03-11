@@ -3,7 +3,6 @@
 `retina-generator` is a small CLI tool that generates Probing Directives (PDs) from CLI arguments and writes them to a JSONL output file.
 
 **Part of the Retina system:**
-
 - **Generator**: Creates probing directives (this component)
 - **Orchestrator**: Distributes directives to agents, collects FIEs
 - **Agent**: Executes network probes
@@ -19,7 +18,6 @@ make build
 ```
 
 This will:
-
 - Format the code (`gofmt`, `goimports` if available)
 - Run `golangci-lint`
 - Build the binary `retina-generator`
@@ -58,16 +56,16 @@ Agent IDs are provided as positional arguments:
 
 ```bash
 ./retina-generator \
-  -seed=123 \
-  -min-ttl=4 \
-  -max-ttl=20 \
-  -num-pds=100 \
-  -output-file=directives.jsonl \
+  --seed=123 \
+  --min-ttl=4 \
+  --max-ttl=20 \
+  --num-pds=100 \
+  --output-file=directives.jsonl \
+  --log-level=info \
   a1 a2 a3
 ```
 
 This will:
-
 1. Generate 100 Probing Directives.
 2. Assign them to agents `a1`, `a2`, `a3`.
 3. Write them to `directives.jsonl` as JSONL.
@@ -77,13 +75,14 @@ This will:
 
 ## Flags
 
-| Flag            | Default | Description                               |
-| --------------- | ------- | ----------------------------------------- |
-| `--seed`        | `42`    | Seed for the random generator             |
-| `--min-ttl`     | `1`     | Minimum TTL (0-255)                       |
-| `--max-ttl`     | `32`    | Maximum TTL (0-255)                       |
-| `--num-pds`     | `100`   | Number of PDs to generate                 |
-| `--output-file` | `""`    | Path to the output JSONL file for the PDs |
+| Flag            | Default | Description                                  |
+| --------------- | ------- | -------------------------------------------- |
+| `--seed`        | `42`    | Seed for the random generator                |
+| `--min-ttl`     | `1`     | Minimum TTL (0-255)                          |
+| `--max-ttl`     | `32`    | Maximum TTL (0-255)                          |
+| `--num-pds`     | `100`   | Number of PDs to generate                    |
+| `--output-file` | `""`    | Path to the output JSONL file for the PDs    |
+| `--log-level`   | `info`  | Log level (`debug`, `info`, `warn`, `error`) |
 
 ---
 
@@ -91,9 +90,10 @@ This will:
 
 - The generator runs once: generate → write to file → exit.
 - The output is written in JSONL format to the path specified by `--output-file`.
-- If `--output-file` is not set, no output will be written (an empty path is passed through).
+- `--output-file` is required; the program will exit with an error if it is not set.
 - The same seed always produces the same set of PDs, useful for debugging and replay.
 - `min-ttl` and `max-ttl` must be between 0 and 255.
+- Logs are written to stdout in JSON format, compatible with Loki/Grafana pipelines.
 - The program handles `SIGINT` and `SIGTERM` for graceful shutdown.
 
 ---
@@ -101,4 +101,3 @@ This will:
 ## License
 
 MIT
-

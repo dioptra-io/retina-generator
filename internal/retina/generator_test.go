@@ -20,6 +20,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"math/rand"
 	"net"
 	"os"
@@ -33,6 +35,10 @@ import (
 // ============================================================================
 // TEST HELPERS
 // ============================================================================
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func defaultConfig(t *testing.T) *Config {
 	t.Helper()
@@ -53,7 +59,7 @@ func defaultConfig(t *testing.T) *Config {
 func TestNewGen_Valid(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewGen(defaultConfig(t))
+	_, err := NewGen(defaultConfig(t), discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +71,7 @@ func TestNewGen_EmptyAgentIDs(t *testing.T) {
 	cfg := defaultConfig(t)
 	cfg.AgentIDs = []string{}
 
-	_, err := NewGen(cfg)
+	_, err := NewGen(cfg, discardLogger())
 	if err == nil {
 		t.Fatal("expected error for empty agent IDs")
 	}
@@ -78,7 +84,7 @@ func TestNewGen_MinTTLGreaterThanMaxTTL(t *testing.T) {
 	cfg.MinTTL = 32
 	cfg.MaxTTL = 4
 
-	_, err := NewGen(cfg)
+	_, err := NewGen(cfg, discardLogger())
 	if err == nil {
 		t.Fatal("expected error when min TTL > max TTL")
 	}
@@ -90,7 +96,7 @@ func TestNewGen_ZeroNumPDs(t *testing.T) {
 	cfg := defaultConfig(t)
 	cfg.NumPDs = 0
 
-	_, err := NewGen(cfg)
+	_, err := NewGen(cfg, discardLogger())
 	if err == nil {
 		t.Fatal("expected error for zero NumPDs")
 	}
@@ -102,7 +108,7 @@ func TestNewGen_EmptyOutputFile(t *testing.T) {
 	cfg := defaultConfig(t)
 	cfg.OutputFile = ""
 
-	_, err := NewGen(cfg)
+	_, err := NewGen(cfg, discardLogger())
 	if err == nil {
 		t.Fatal("expected error for empty output file")
 	}
@@ -116,7 +122,7 @@ func TestRun_Success(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultConfig(t)
-	gen, err := NewGen(cfg)
+	gen, err := NewGen(cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected NewGen error: %v", err)
 	}
@@ -157,7 +163,7 @@ func TestRun_InvalidPath(t *testing.T) {
 
 	cfg := defaultConfig(t)
 	cfg.OutputFile = "/nonexistent-dir/pds.jsonl"
-	gen, err := NewGen(cfg)
+	gen, err := NewGen(cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected NewGen error: %v", err)
 	}
