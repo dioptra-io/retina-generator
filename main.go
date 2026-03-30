@@ -23,12 +23,13 @@ func main() {
 	}
 
 	var (
-		seed       = flag.Int64("seed", 42, "Seed for the random generator.")
-		minTTL     = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
-		maxTTL     = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
-		numPDs     = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
-		outputFile = flag.String("output-file", "", "Path to the output file where PDs will be written as JSONL.")
-		logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error).")
+		seed          = flag.Int64("seed", 42, "Seed for the random generator.")
+		minTTL        = flag.Uint("min-ttl", 1, "Minimum TTL value for generated PDs (0-255).")
+		maxTTL        = flag.Uint("max-ttl", 32, "Maximum TTL value for generated PDs (0-255).")
+		numPDs        = flag.Uint64("num-pds", 100, "Number of Probing Directives to generate.")
+		outputFile    = flag.String("output-file", "", "Path to the output file where PDs will be written as JSONL.")
+		blocklistFile = flag.String("blocklist-file", "", "Path to a file containing CIDR networks to block (one per line).")
+		logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error).")
 	)
 
 	flag.Parse()
@@ -52,12 +53,13 @@ func main() {
 	defer cancel()
 
 	gen, err := retina.NewGen(&retina.Config{
-		Seed:       *seed,
-		MinTTL:     uint8(*minTTL),
-		MaxTTL:     uint8(*maxTTL),
-		AgentIDs:   agentIDs,
-		NumPDs:     *numPDs,
-		OutputFile: *outputFile,
+		Seed:          *seed,
+		MinTTL:        uint8(*minTTL),
+		MaxTTL:        uint8(*maxTTL),
+		AgentIDs:      agentIDs,
+		NumPDs:        *numPDs,
+		OutputFile:    *outputFile,
+		BlocklistFile: *blocklistFile,
 	}, logger)
 	if err != nil {
 		logger.Error("Cannot create generator with the provided config", slog.Any("err", err))

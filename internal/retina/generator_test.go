@@ -268,7 +268,7 @@ func TestGeneratePD_Success(t *testing.T) {
 	r := rand.New(rand.NewSource(42))
 	agents := []string{"a1", "a2", "a3"}
 
-	pd, err := generatePD(r, 100, agents, 5, 10)
+	pd, err := generatePD(r, 100, agents, 5, 10, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,11 +313,11 @@ func TestGeneratePD_Distinct(t *testing.T) {
 	r := rand.New(rand.NewSource(42))
 	agents := []string{"a1"}
 
-	pd1, err := generatePD(r, 0, agents, 5, 10)
+	pd1, err := generatePD(r, 0, agents, 5, 10, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pd2, err := generatePD(r, 1, agents, 5, 10)
+	pd2, err := generatePD(r, 1, agents, 5, 10, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

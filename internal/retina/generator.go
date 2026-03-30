@@ -6,6 +6,7 @@
 package retina
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dioptra-io/retina-commons/api/v1"
@@ -22,17 +24,19 @@ const maxIPGenerationAttempts = 100
 
 // Config defines the parameters used to generate and write PDs.
 type Config struct {
-	Seed       int64
-	MinTTL     uint8
-	MaxTTL     uint8
-	AgentIDs   []string
-	NumPDs     uint64
-	OutputFile string
+	Seed          int64
+	MinTTL        uint8
+	MaxTTL        uint8
+	AgentIDs      []string
+	NumPDs        uint64
+	OutputFile    string
+	BlocklistFile string
 }
 
 type gen struct {
-	config *Config
-	logger *slog.Logger
+	config    *Config
+	logger    *slog.Logger
+	blocklist []*net.IPNet
 }
 
 // NewGen validates the provided Config and returns a new generator.
@@ -51,9 +55,20 @@ func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
 		return nil, fmt.Errorf("output file cannot be empty")
 	}
 
+	var blocklist []*net.IPNet
+	if config.BlocklistFile != "" {
+		var err error
+		blocklist, err = parseBlocklist(config.BlocklistFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse blocklist file: %w", err)
+		}
+		logger.Info("Blocklist loaded", slog.Int("networks", len(blocklist)))
+	}
+
 	return &gen{
-		config: config,
-		logger: logger,
+		config:    config,
+		logger:    logger,
+		blocklist: blocklist,
 	}, nil
 }
 
@@ -74,7 +89,8 @@ func (g *gen) Run(_ context.Context) error {
 			i,
 			g.config.AgentIDs,
 			g.config.MinTTL,
-			g.config.MaxTTL)
+			g.config.MaxTTL,
+			g.blocklist)
 		if err != nil {
 			g.logger.Warn("Skipping PD: generation failed",
 				slog.Uint64("pd_index", i),
@@ -125,7 +141,7 @@ func writePDsToFile(pds []*api.ProbingDirective, path string) error {
 	return nil
 }
 
-func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL uint8) (*api.ProbingDirective, error) {
+func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL uint8, blocklist []*net.IPNet) (*api.ProbingDirective, error) {
 	agentID := agentIDs[random.Intn(len(agentIDs))]
 
 	ipVersion := []api.IPVersion{
@@ -153,6 +169,9 @@ func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL 
 			return nil, fmt.Errorf("cannot generate address: %w", err)
 		}
 		if !isPublic(candidateAddress) {
+			continue
+		}
+		if len(blocklist) > 0 && isBlocked(candidateAddress, blocklist) {
 			continue
 		}
 		destinationAddress = candidateAddress
@@ -223,4 +242,39 @@ func isPublic(ip net.IP) bool {
 		!ip.IsLinkLocalUnicast() &&
 		!ip.IsLinkLocalMulticast() &&
 		!ip.IsMulticast()
+}
+
+func parseBlocklist(path string) ([]*net.IPNet, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open blocklist file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var blocklist []*net.IPNet
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		_, ipNet, err := net.ParseCIDR(line)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", line, err)
+		}
+		blocklist = append(blocklist, ipNet)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading blocklist file: %w", err)
+	}
+	return blocklist, nil
+}
+
+func isBlocked(ip net.IP, blocklist []*net.IPNet) bool {
+	for _, network := range blocklist {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
