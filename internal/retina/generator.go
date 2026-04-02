@@ -171,7 +171,7 @@ func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL 
 		if !isPublic(candidateAddress) {
 			continue
 		}
-		if len(blocklist) > 0 && isBlocked(candidateAddress, blocklist) {
+		if isBlocked(candidateAddress, blocklist) {
 			continue
 		}
 		destinationAddress = candidateAddress
