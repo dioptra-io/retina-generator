@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Dioptra
+// Copyright (c) 2026 Dioptra
 // SPDX-License-Identifier: MIT
 
 // retina-generator generates Probing Directives (PDs) and writes them to a JSONL file.

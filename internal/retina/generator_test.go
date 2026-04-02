@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Dioptra
+// SPDX-License-Identifier: MIT
+//
 // ## Test Coverage
 //
 // Tests for the retina-generator internal package, covering PD generation,
@@ -395,5 +398,198 @@ func TestIsPublic(t *testing.T) {
 		if got := isPublic(tt.ip); got != tt.public {
 			t.Errorf("isPublic(%v) = %v, expected %v", tt.ip, got, tt.public)
 		}
+	}
+}
+
+// ============================================================================
+// UNIT TESTS - parseBlocklist
+// ============================================================================
+
+func TestParseBlocklist_Valid(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "blocklist.txt")
+	content := "10.0.0.0/8\n192.168.0.0/16\n# comment\n2001:db8::/32\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("cannot write test file: %v", err)
+	}
+
+	blocklist, err := parseBlocklist(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(blocklist) != 3 {
+		t.Fatalf("expected 3 networks, got %d", len(blocklist))
+	}
+}
+
+func TestParseBlocklist_InvalidPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseBlocklist("/nonexistent/path/blocklist.txt")
+	if err == nil {
+		t.Fatal("expected error for invalid path")
+	}
+}
+
+func TestParseBlocklist_InvalidCIDR(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "blocklist.txt")
+	if err := os.WriteFile(path, []byte("invalid-cidr\n"), 0644); err != nil {
+		t.Fatalf("cannot write test file: %v", err)
+	}
+
+	_, err := parseBlocklist(path)
+	if err == nil {
+		t.Fatal("expected error for invalid CIDR")
+	}
+}
+
+func TestParseBlocklist_EmptyAndComments(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "blocklist.txt")
+	content := "# comment\n\n10.0.0.0/8\n\n# another comment\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("cannot write test file: %v", err)
+	}
+
+	blocklist, err := parseBlocklist(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(blocklist) != 1 {
+		t.Fatalf("expected 1 network, got %d", len(blocklist))
+	}
+}
+
+// ============================================================================
+// UNIT TESTS - isBlocked
+// ============================================================================
+
+func TestIsBlocked(t *testing.T) {
+	t.Parallel()
+
+	_, blocklist1, _ := net.ParseCIDR("10.0.0.0/8")
+	_, blocklist2, _ := net.ParseCIDR("192.168.0.0/16")
+	blocklist := []*net.IPNet{blocklist1, blocklist2}
+
+	tests := []struct {
+		ip      net.IP
+		blocked bool
+	}{
+		{net.ParseIP("10.1.2.3"), true},
+		{net.ParseIP("192.168.1.1"), true},
+		{net.ParseIP("8.8.8.8"), false},
+		{net.ParseIP("172.16.0.1"), false},
+	}
+
+	for _, tt := range tests {
+		if got := isBlocked(tt.ip, blocklist); got != tt.blocked {
+			t.Errorf("isBlocked(%v) = %v, expected %v", tt.ip, got, tt.blocked)
+		}
+	}
+}
+
+func TestIsBlocked_EmptyBlocklist(t *testing.T) {
+	t.Parallel()
+
+	if isBlocked(net.ParseIP("10.0.0.1"), nil) {
+		t.Error("expected false for empty blocklist")
+	}
+	if isBlocked(net.ParseIP("10.0.0.1"), []*net.IPNet{}) {
+		t.Error("expected false for nil blocklist")
+	}
+}
+
+// ============================================================================
+// UNIT TESTS - NewGen with blocklist
+// ============================================================================
+
+func TestNewGen_WithBlocklist(t *testing.T) {
+	t.Parallel()
+
+	blocklistPath := filepath.Join(t.TempDir(), "blocklist.txt")
+	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0644); err != nil {
+		t.Fatalf("cannot write blocklist file: %v", err)
+	}
+
+	cfg := defaultConfig(t)
+	cfg.BlocklistFile = blocklistPath
+
+	gen, err := NewGen(cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gen == nil {
+		t.Fatal("expected non-nil generator")
+	}
+}
+
+func TestNewGen_InvalidBlocklistFile(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultConfig(t)
+	cfg.BlocklistFile = "/nonexistent/blocklist.txt"
+
+	_, err := NewGen(cfg, discardLogger())
+	if err == nil {
+		t.Fatal("expected error for invalid blocklist file")
+	}
+}
+
+// ============================================================================
+// UNIT TESTS - Run with blocklist
+// ============================================================================
+
+func TestRun_WithBlocklist(t *testing.T) {
+	t.Parallel()
+
+	blocklistPath := filepath.Join(t.TempDir(), "blocklist.txt")
+	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0644); err != nil {
+		t.Fatalf("cannot write blocklist file: %v", err)
+	}
+
+	cfg := defaultConfig(t)
+	cfg.BlocklistFile = blocklistPath
+	cfg.NumPDs = 100
+
+	gen, err := NewGen(cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("unexpected NewGen error: %v", err)
+	}
+
+	if err := gen.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected Run error: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatalf("cannot read output file: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected some PDs to be generated")
+	}
+}
+
+// ============================================================================
+// UNIT TESTS - parseBlocklist scanner error
+// ============================================================================
+
+func TestParseBlocklist_ScannerError(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "blocklist.txt")
+	content := strings.Repeat("a", 1024*1024)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("cannot write test file: %v", err)
+	}
+
+	_, err := parseBlocklist(path)
+	if err == nil {
+		t.Fatal("expected error for scanner error (line too long)")
 	}
 }
