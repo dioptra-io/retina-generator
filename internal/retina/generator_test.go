@@ -7,6 +7,7 @@
 // Partial coverage notes:
 //   - Run, generatePD: IP exhaustion path is unreachable in practice
 //   - writePDsToFile: encode error is unreachable on a successfully opened file
+//   - buildNextHeader: default panic branch is unreachable; protocol is always ICMP, UDP, or ICMPv6
 //   - main(): untested by convention
 
 package retina
@@ -109,7 +110,7 @@ func TestNewGen_WithBlocklist(t *testing.T) {
 	t.Parallel()
 
 	blocklistPath := filepath.Join(t.TempDir(), "blocklist.txt")
-	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0644); err != nil {
+	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write blocklist file: %v", err)
 	}
 
@@ -152,7 +153,7 @@ func TestRun_Success(t *testing.T) {
 		t.Fatalf("unexpected Run error: %v", err)
 	}
 
-	f, err := os.Open(cfg.OutputFile)
+	f, err := os.Open(cfg.OutputFile) //nolint:gosec // G304: path from t.TempDir()
 	if err != nil {
 		t.Fatalf("cannot open output file: %v", err)
 	}
@@ -198,7 +199,7 @@ func TestRun_WithBlocklist(t *testing.T) {
 	t.Parallel()
 
 	blocklistPath := filepath.Join(t.TempDir(), "blocklist.txt")
-	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0644); err != nil {
+	if err := os.WriteFile(blocklistPath, []byte("10.0.0.0/8\n"), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write blocklist file: %v", err)
 	}
 
@@ -215,7 +216,7 @@ func TestRun_WithBlocklist(t *testing.T) {
 		t.Fatalf("unexpected Run error: %v", err)
 	}
 
-	data, err := os.ReadFile(cfg.OutputFile)
+	data, err := os.ReadFile(cfg.OutputFile) //nolint:gosec // G304: path from t.TempDir()
 	if err != nil {
 		t.Fatalf("cannot read output file: %v", err)
 	}
@@ -259,7 +260,7 @@ func TestWritePDsToFile_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from t.TempDir()
 	if err != nil {
 		t.Fatalf("cannot read output file: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestWritePDsToFile_Overwrites(t *testing.T) {
 		t.Fatalf("second write error: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, _ := os.ReadFile(path) //nolint:gosec // G304: path from t.TempDir()
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(lines) != 1 {
 		t.Errorf("expected 1 line after overwrite, got %d", len(lines))
@@ -332,7 +333,7 @@ func TestWritePDsToFile_Overwrites(t *testing.T) {
 func TestGeneratePD_Success(t *testing.T) {
 	t.Parallel()
 
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
 	agents := []string{"a1", "a2", "a3"}
 
 	pd, err := generatePD(r, 100, agents, 5, 10, nil)
@@ -377,7 +378,7 @@ func TestGeneratePD_Success(t *testing.T) {
 func TestGeneratePD_Distinct(t *testing.T) {
 	t.Parallel()
 
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
 	agents := []string{"a1"}
 
 	pd1, err := generatePD(r, 0, agents, 5, 10, nil)
@@ -394,12 +395,37 @@ func TestGeneratePD_Distinct(t *testing.T) {
 	}
 }
 
+// -- buildNextHeader ---------------------------------------------------------
+
+func TestBuildNextHeader_AllProtocols(t *testing.T) {
+	t.Parallel()
+
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
+	for _, protocol := range []api.Protocol{api.ICMP, api.UDP, api.ICMPv6} {
+		nh := buildNextHeader(r, protocol)
+		switch protocol {
+		case api.ICMP:
+			if nh.ICMPNextHeader == nil {
+				t.Errorf("expected ICMPNextHeader for ICMP")
+			}
+		case api.UDP:
+			if nh.UDPNextHeader == nil {
+				t.Errorf("expected UDPNextHeader for UDP")
+			}
+		case api.ICMPv6:
+			if nh.ICMPv6NextHeader == nil {
+				t.Errorf("expected ICMPv6NextHeader for ICMPv6")
+			}
+		}
+	}
+}
+
 // -- generateAddress ----------------------------------------------------------
 
 func TestGenerateAddress_IPv4(t *testing.T) {
 	t.Parallel()
 
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
 
 	ip, err := generateAddress(r, api.IPv4)
 	if err != nil {
@@ -413,7 +439,7 @@ func TestGenerateAddress_IPv4(t *testing.T) {
 func TestGenerateAddress_IPv6(t *testing.T) {
 	t.Parallel()
 
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
 
 	ip, err := generateAddress(r, api.IPv6)
 	if err != nil {
@@ -427,7 +453,7 @@ func TestGenerateAddress_IPv6(t *testing.T) {
 func TestGenerateAddress_InvalidVersion(t *testing.T) {
 	t.Parallel()
 
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
 
 	_, err := generateAddress(r, 99)
 	if err == nil {
@@ -468,7 +494,7 @@ func TestParseBlocklist_Valid(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "blocklist.txt")
 	content := "10.0.0.0/8\n192.168.0.0/16\n# comment\n2001:db8::/32\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write test file: %v", err)
 	}
 
@@ -494,7 +520,7 @@ func TestParseBlocklist_InvalidCIDR(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "blocklist.txt")
-	if err := os.WriteFile(path, []byte("invalid-cidr\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("invalid-cidr\n"), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write test file: %v", err)
 	}
 
@@ -509,7 +535,7 @@ func TestParseBlocklist_EmptyAndComments(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "blocklist.txt")
 	content := "# comment\n\n10.0.0.0/8\n\n# another comment\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write test file: %v", err)
 	}
 
@@ -527,7 +553,7 @@ func TestParseBlocklist_ScannerError(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "blocklist.txt")
 	content := strings.Repeat("a", 1024*1024)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { //nolint:gosec // G306: test file
 		t.Fatalf("cannot write test file: %v", err)
 	}
 
