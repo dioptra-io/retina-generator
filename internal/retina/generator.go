@@ -33,7 +33,8 @@ type Config struct {
 	BlocklistFile string
 }
 
-type gen struct {
+// Gen generates ProbingDirectives and writes them to a JSONL file.
+type Gen struct {
 	config    *Config
 	logger    *slog.Logger
 	blocklist []*net.IPNet
@@ -41,7 +42,7 @@ type gen struct {
 
 // NewGen validates the provided Config and returns a new generator.
 // It returns an error if the configuration is invalid.
-func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
+func NewGen(config *Config, logger *slog.Logger) (*Gen, error) {
 	if len(config.AgentIDs) == 0 {
 		return nil, fmt.Errorf("agentIDs cannot be empty")
 	}
@@ -65,7 +66,7 @@ func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
 		logger.Info("Blocklist loaded", slog.Int("networks", len(blocklist)))
 	}
 
-	return &gen{
+	return &Gen{
 		config:    config,
 		logger:    logger,
 		blocklist: blocklist,
@@ -73,7 +74,8 @@ func NewGen(config *Config, logger *slog.Logger) (*gen, error) {
 }
 
 // Run generates Probing Directives and writes them to the configured JSONL file.
-func (g *gen) Run(_ context.Context) error {
+// It respects context cancellation between iterations.
+func (g *Gen) Run(ctx context.Context) error {
 	start := time.Now()
 	g.logger.Info("Starting PD generation",
 		slog.Uint64("num_pds", g.config.NumPDs),
@@ -84,6 +86,11 @@ func (g *gen) Run(_ context.Context) error {
 	pds := make([]*api.ProbingDirective, 0, g.config.NumPDs)
 	random := rand.New(rand.NewSource(g.config.Seed))
 	for i := uint64(0); i < g.config.NumPDs; i++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		pd, err := generatePD(
 			random,
 			i,
@@ -223,6 +230,8 @@ func generateAddress(random *rand.Rand, ipVersion api.IPVersion) (net.IP, error)
 	case api.IPv6:
 		length = net.IPv6len
 	default:
+		// Unreachable: ipVersion is always IPv4 or IPv6, chosen from a fixed
+		// slice in generatePD. Kept as a defensive check for future callers.
 		return nil, fmt.Errorf("invalid IP version: expected 4 or 6, got %v", ipVersion)
 	}
 
