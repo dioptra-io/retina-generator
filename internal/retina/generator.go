@@ -84,7 +84,7 @@ func (g *Gen) Run(ctx context.Context) error {
 	)
 
 	pds := make([]*api.ProbingDirective, 0, g.config.NumPDs)
-	random := rand.New(rand.NewSource(g.config.Seed))
+	random := rand.New(rand.NewSource(g.config.Seed)) //nolint:gosec // G404: intentional, seeded deterministic generator
 	for i := uint64(0); i < g.config.NumPDs; i++ {
 		select {
 		case <-ctx.Done():
@@ -120,7 +120,7 @@ func (g *Gen) Run(ctx context.Context) error {
 	g.logger.Info("PD generation complete",
 		slog.Int("written", len(pds)),
 		slog.Uint64("requested", g.config.NumPDs),
-		slog.Int("skipped", int(g.config.NumPDs)-len(pds)),
+		slog.Int("skipped", int(g.config.NumPDs)-len(pds)), //nolint:gosec // G115: safe on 64-bit platforms; int and uint64 are both 64-bit
 		slog.String("output_file", g.config.OutputFile),
 		slog.Int64("seed", g.config.Seed),
 		slog.Float64("duration_seconds", time.Since(start).Seconds()),
@@ -131,7 +131,7 @@ func (g *Gen) Run(ctx context.Context) error {
 // writePDsToFile writes each ProbingDirective as a JSON object on its own line
 // (JSONL format) to the file at the given path, creating or truncating it.
 func writePDsToFile(pds []*api.ProbingDirective, path string) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: path is caller-provided by design
 	if err != nil {
 		return fmt.Errorf("open output file: %w", err)
 	}
@@ -188,38 +188,46 @@ func generatePD(random *rand.Rand, id uint64, agentIDs []string, minTTL, maxTTL 
 		return nil, fmt.Errorf("failed to generate routable IP address after %d attempts", maxIPGenerationAttempts)
 	}
 
-	nearTTL := minTTL + uint8(random.Intn(int(maxTTL-minTTL+1)))
+	nearTTL := minTTL + uint8(random.Intn(int(maxTTL-minTTL+1))) //nolint:gosec // G115: value bounded by maxTTL-minTTL+1 which fits in uint8
 
-	nextHeader := api.NextHeader{}
-	switch protocol {
-	case api.ICMP:
-		nextHeader.ICMPNextHeader = &api.ICMPNextHeader{
-			FirstHalfWord:  uint16(random.Intn(1 << 16)),
-			SecondHalfWord: uint16(random.Intn(1 << 16)),
-		}
-	case api.UDP:
-		nextHeader.UDPNextHeader = &api.UDPNextHeader{
-			SourcePort:      uint16(random.Intn(1 << 16)),
-			DestinationPort: uint16(random.Intn(1 << 16)),
-		}
-	case api.ICMPv6:
-		nextHeader.ICMPv6NextHeader = &api.ICMPv6NextHeader{
-			FirstHalfWord:  uint16(random.Intn(1 << 16)),
-			SecondHalfWord: uint16(random.Intn(1 << 16)),
-		}
-	}
-
-	pd := &api.ProbingDirective{
+	return &api.ProbingDirective{
 		ProbingDirectiveID: id,
 		IPVersion:          ipVersion,
 		Protocol:           protocol,
 		AgentID:            agentID,
 		DestinationAddress: destinationAddress,
 		NearTTL:            nearTTL,
-		NextHeader:         nextHeader,
-	}
+		NextHeader:         buildNextHeader(random, protocol),
+	}, nil
+}
 
-	return pd, nil
+// buildNextHeader constructs the protocol-specific NextHeader for a ProbingDirective.
+func buildNextHeader(random *rand.Rand, protocol api.Protocol) api.NextHeader {
+	switch protocol {
+	case api.ICMP:
+		return api.NextHeader{
+			ICMPNextHeader: &api.ICMPNextHeader{
+				FirstHalfWord:  uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				SecondHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+			},
+		}
+	case api.UDP:
+		return api.NextHeader{
+			UDPNextHeader: &api.UDPNextHeader{
+				SourcePort:      uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				DestinationPort: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+			},
+		}
+	case api.ICMPv6:
+		return api.NextHeader{
+			ICMPv6NextHeader: &api.ICMPv6NextHeader{
+				FirstHalfWord:  uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				SecondHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+			},
+		}
+	default:
+		panic(fmt.Sprintf("buildNextHeader: unsupported protocol %v", protocol))
+	}
 }
 
 func generateAddress(random *rand.Rand, ipVersion api.IPVersion) (net.IP, error) {
@@ -254,7 +262,7 @@ func isPublic(ip net.IP) bool {
 }
 
 func parseBlocklist(path string) ([]*net.IPNet, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: path is caller-provided by design
 	if err != nil {
 		return nil, fmt.Errorf("cannot open blocklist file: %w", err)
 	}

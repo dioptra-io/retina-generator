@@ -31,7 +31,6 @@ func main() {
 		blocklistFile = flag.String("blocklist-file", "", "Path to a file containing CIDR networks to block (one per line).")
 		logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error).")
 	)
-
 	flag.Parse()
 
 	agentIDs := flag.Args()
@@ -50,24 +49,27 @@ func main() {
 	}))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	gen, err := retina.NewGen(&retina.Config{
 		Seed:          *seed,
-		MinTTL:        uint8(*minTTL),
-		MaxTTL:        uint8(*maxTTL),
+		MinTTL:        uint8(*minTTL), //nolint:gosec // G115: bounds checked above
+		MaxTTL:        uint8(*maxTTL), //nolint:gosec // G115: bounds checked above
 		AgentIDs:      agentIDs,
 		NumPDs:        *numPDs,
 		OutputFile:    *outputFile,
 		BlocklistFile: *blocklistFile,
 	}, logger)
 	if err != nil {
+		cancel()
 		logger.Error("Cannot create generator with the provided config", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	if err := gen.Run(ctx); err != nil {
+		cancel()
 		logger.Error("Failed to write directives", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	cancel()
 }
