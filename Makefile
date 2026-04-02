@@ -1,24 +1,28 @@
-.PHONY: build proper help docs test clean
+.PHONY: build lint fmt tidy test clean help
 
 help:
-	@echo valid targets: build proper clean test
+	@echo "Valid targets:"
+	@echo "  build  - Format, lint, and build retina-generator binary"
+	@echo "  lint   - Format code and run linters"
+	@echo "  fmt    - Format code"
+	@echo "  tidy   - Tidy go modules"
+	@echo "  test   - Run tests with race detection"
+	@echo "  clean  - Remove built binaries"
 
-build: proper build_gen
+build: lint
+	go build -o retina-generator .
 
-proper:
-	find . -name '*.go' | sort | xargs wc -l
-	gofmt -s -w $(shell go list -f '{{.Dir}}' ./...)
-	@if command -v goimports >/dev/null 2>&1; then \
-		echo goimports -w $(shell go list -f '{{.Dir}}' ./...); \
-		goimports -w $(shell go list -f '{{.Dir}}' ./...); \
-	fi
+lint: fmt
 	golangci-lint run
+
+fmt:
+	go fmt ./...
+
+tidy:
+	go mod tidy
 
 test:
 	go test -v -race -cover ./...
-
-build_gen:
-	go build -o retina-generator .
 
 clean:
 	rm -f retina-generator
