@@ -10,7 +10,7 @@
 //   - buildNextHeader: default panic branch is unreachable; protocol is always ICMP, UDP, or ICMPv6
 //   - main(): untested by convention
 
-package retina
+package generator
 
 import (
 	"bufio"

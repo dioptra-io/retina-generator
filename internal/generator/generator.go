@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Dioptra
 // SPDX-License-Identifier: MIT
 //
-// Package retina implements the retina-generator, which generates Probing Directives (PDs)
+// Package generator implements the retina-generator, which generates Probing Directives (PDs)
 // and writes them to a JSONL file.
-package retina
+package generator
 
 import (
 	"bufio"

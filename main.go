@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/dioptra-io/retina-generator/internal/retina"
+	"github.com/dioptra-io/retina-generator/internal/generator"
 )
 
 func main() {
@@ -50,7 +50,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	gen, err := retina.NewGen(&retina.Config{
+	gen, err := generator.NewGen(&generator.Config{
 		Seed:          *seed,
 		MinTTL:        uint8(*minTTL), //nolint:gosec // G115: bounds checked above
 		MaxTTL:        uint8(*maxTTL), //nolint:gosec // G115: bounds checked above
