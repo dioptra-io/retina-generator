@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Dioptra
+// Copyright (c) 2026 Sorbonne Université
 // SPDX-License-Identifier: MIT
 //
 // Package generator implements the retina-generator, which generates Probing Directives (PDs)
