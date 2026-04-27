@@ -241,7 +241,7 @@ func TestRun_ContextCancelled(t *testing.T) {
 	cancel()
 
 	if err := gen.Run(ctx); err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 }
 
