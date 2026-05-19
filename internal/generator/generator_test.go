@@ -420,6 +420,28 @@ func TestBuildNextHeader_AllProtocols(t *testing.T) {
 	}
 }
 
+// TestBuildNextHeader_ICMPSecondHalfWordZero verifies that SecondHalfWord is
+// always zero for ICMP and ICMPv6, matching caracal's output format where
+// dst_port is always 0 for ICMP probes (ICMP has no destination port; only
+// the checksum/src_port varies the flow ID).
+func TestBuildNextHeader_ICMPSecondHalfWordZero(t *testing.T) {
+	t.Parallel()
+
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // G404: test helper, deterministic seed
+
+	for range 100 {
+		nh := buildNextHeader(r, api.ICMP)
+		if nh.ICMPNextHeader.SecondHalfWord != 0 {
+			t.Errorf("ICMP SecondHalfWord must be 0, got %d", nh.ICMPNextHeader.SecondHalfWord)
+		}
+
+		nh = buildNextHeader(r, api.ICMPv6)
+		if nh.ICMPv6NextHeader.SecondHalfWord != 0 {
+			t.Errorf("ICMPv6 SecondHalfWord must be 0, got %d", nh.ICMPv6NextHeader.SecondHalfWord)
+		}
+	}
+}
+
 // -- generateAddress ----------------------------------------------------------
 
 func TestGenerateAddress_IPv4(t *testing.T) {

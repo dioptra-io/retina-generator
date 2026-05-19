@@ -207,8 +207,11 @@ func buildNextHeader(random *rand.Rand, protocol api.Protocol) api.NextHeader {
 	case api.ICMP:
 		return api.NextHeader{
 			ICMPNextHeader: &api.ICMPNextHeader{
-				FirstHalfWord:  uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
-				SecondHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				FirstHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				// Caracal always reports dst_port=0 for ICMP (ICMP has no destination
+				// port; only the checksum/src_port varies the flow ID). SecondHalfWord
+				// must be zero so the correlation key matches caracal's CSV output.
+				SecondHalfWord: 0,
 			},
 		}
 	case api.UDP:
@@ -221,8 +224,9 @@ func buildNextHeader(random *rand.Rand, protocol api.Protocol) api.NextHeader {
 	case api.ICMPv6:
 		return api.NextHeader{
 			ICMPv6NextHeader: &api.ICMPv6NextHeader{
-				FirstHalfWord:  uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
-				SecondHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				FirstHalfWord: uint16(random.Intn(1 << 16)), //nolint:gosec // G115: value bounded by 1<<16
+				// Same reasoning as ICMP above.
+				SecondHalfWord: 0,
 			},
 		}
 	default:
