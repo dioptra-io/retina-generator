@@ -1,0 +1,11 @@
+profile: coverage.out
+
+threshold:
+  package: 75
+  total: 75
+
+exclude:
+  paths:
+    - ^cmd/
+    - main\.go$
+    - \.pb\.go$
